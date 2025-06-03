@@ -3,3 +3,5 @@ numpy
 lightgbm
 scikit-learn
 matplotlib
+streamlit
+statsmodels
