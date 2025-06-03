@@ -295,10 +295,9 @@ if not df_eventos.empty:
         if categorias_evt == "Todos" or row["nombre_evento"] == categorias_evt:
             if start_hist <= row["fecha"] <= end_hist:
                 fig_hist.add_vline(
-                    x=row["fecha"].strftime("%Y-%m-%d"),  # convertir a string
+                    x=row["fecha"],  # pasamos directamente Timestamp
                     line=dict(color="red", width=1, dash="dot"),
-                    annotation_text=row["nombre_evento"],
-                    annotation_position="top left"
+                    annotation_text=row["nombre_evento"]
                 )
 
 st.plotly_chart(fig_hist, use_container_width=True)
@@ -448,13 +447,11 @@ if show_forecast:
         name="Pronóstico",
         line=dict(color='orange', dash='dash')
     ))
-    # Línea vertical separadora usando string en lugar de Timestamp directamente
-    hoy_str = ts_daily.index.max().strftime("%Y-%m-%d")
+    # Línea vertical separadora usando directamente Timestamp
     fig_fc.add_vline(
-        x=hoy_str,
+        x=ts_daily.index.max(),
         line=dict(color="gray", width=1, dash="dot"),
-        annotation_text="Hoy",
-        annotation_position="top right"
+        annotation_text="Hoy"
     )
 
 fig_fc.update_layout(
@@ -464,4 +461,5 @@ fig_fc.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 st.plotly_chart(fig_fc, use_container_width=True)
+
 
