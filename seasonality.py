@@ -275,34 +275,36 @@ if aggregation == "Semanal":
 elif aggregation == "Mensual":
     df_plot = df_plot.resample("M").sum()
 
-# Construcción del gráfico Plotly
-fig_hist = go.Figure()
-for cat in selected_categories:
-    serie_cat = df_plot[cat]
-    fig_hist.add_trace(go.Scatter(
-        x=serie_cat.index,
-        y=serie_cat.values,
-        mode='lines',
-        name=cat
-    ))
-
-# Superponer eventos como líneas verticales en Plotly
-if not df_eventos.empty:
+# Si no hay eventos, usamos simplemente line_chart de Streamlit
+if df_eventos.empty:
+    st.line_chart(df_plot)
+else:
+    # Con eventos, pasamos a Plotly para superponer líneas verticales
     categorias_evt = st.selectbox(
         "Seleccionar evento para resaltar:",
         options=["Todos"] + df_eventos["nombre_evento"].unique().tolist()
     )
+    fig_hist = go.Figure()
+    for cat in selected_categories:
+        serie_cat = df_plot[cat]
+        fig_hist.add_trace(go.Scatter(
+            x=serie_cat.index,
+            y=serie_cat.values,
+            mode='lines',
+            name=cat
+        ))
+    # Dibujamos cada evento como línea vertical
     for _, row in df_eventos.iterrows():
         if categorias_evt == "Todos" or row["nombre_evento"] == categorias_evt:
             if start_hist <= row["fecha"] <= end_hist:
                 fig_hist.add_vline(
-                    x=row["fecha"].strftime("%Y-%m-%d"),
+                    x=row["fecha"],
                     line=dict(color="red", width=1, dash="dot"),
                     annotation_text=row["nombre_evento"],
                     annotation_position="top left"
                 )
+    st.plotly_chart(fig_hist, use_container_width=True)
 
-st.plotly_chart(fig_hist, use_container_width=True)
 st.markdown("---")
 
 # ----------------------------------------
@@ -334,10 +336,10 @@ if len(serie) >= period_map[aggregation] * 2:
 
     # Construimos un DataFrame con las 3 series: trend, seasonal, resid
     df_decomp = pd.DataFrame({
-        "Tendencia":      result.trend,
+        "Tendencia":    result.trend,
         "Estacionalidad": result.seasonal,
-        "Residuo":        result.resid
-    }).fillna(method="bfill")
+        "Residuo":      result.resid
+    })
 
     st.subheader("Componentes de la Descomposición")
     st.write("""
@@ -345,7 +347,7 @@ if len(serie) >= period_map[aggregation] * 2:
     - **Estacionalidad:** Patrón repetitivo en períodos iguales.  
     - **Residuo:** Lo que no se explica por tendencia ni estacionalidad.  
     """)
-    st.line_chart(df_decomp)
+    st.line_chart(df_decomp.fillna(method="bfill"))  # interpolar valores nulos para mostrar líneas
 else:
     st.write("Serie demasiado corta para descomposición con este nivel de agregación.")
 
@@ -386,12 +388,12 @@ else:
 
             delta_pct = ((ventas_evt - ventas_pre) / ventas_pre * 100) if ventas_pre != 0 else np.nan
             impacto_list.append({
-                "Evento":          evento,
-                "Categoría":       cat_evt,
-                "Ventas Previo":   ventas_pre,
-                "Ventas Evento":   ventas_evt,
-                "Ventas Posterior":ventas_post,
-                "Δ (%)":           delta_pct
+                "Evento":           evento,
+                "Categoría":        cat_evt,
+                "Ventas Previo":    ventas_pre,
+                "Ventas Evento":    ventas_evt,
+                "Ventas Posterior": ventas_post,
+                "Δ (%)":            delta_pct
             })
         df_impacto = pd.DataFrame(impacto_list)
         if not df_impacto.empty:
@@ -427,7 +429,7 @@ if show_forecast:
 else:
     forecast_series = pd.Series(dtype=float)  # vacío si no se quiere mostrar pronóstico
 
-# Construimos gráfico con Plotly
+# Construimos gráfico con Plotly para incluir línea vertical y etiquetas
 fig_fc = go.Figure()
 
 # Trazamos histórico
@@ -448,12 +450,28 @@ if show_forecast:
         name="Pronóstico",
         line=dict(color='orange', dash='dash')
     ))
-    # Convertimos la fecha “hoy” a string para evitar el TypeError
-    hoy_str = ts_daily.index.max().strftime("%Y-%m-%d")
-    fig_fc.add_vline(
-        x=hoy_str,
-        line=dict(color="gray", width=1, dash="dot"),
-        annotation_text="Hoy"
+
+    # 1) Dibujamos la línea vertical “Hoy” con add_shape
+    last_date = ts_daily.index.max()
+    fig_fc.add_shape(
+        type="line",
+        x0=last_date,
+        x1=last_date,
+        y0=0,
+        y1=1,
+        xref="x",
+        yref="paper",
+        line=dict(color="gray", width=1, dash="dot")
+    )
+    # 2) Agregamos la etiqueta con add_annotation
+    fig_fc.add_annotation(
+        x=last_date,
+        y=1.0,
+        xref="x",
+        yref="paper",
+        text="Hoy",
+        showarrow=False,
+        yshift=10
     )
 
 fig_fc.update_layout(
@@ -463,6 +481,3 @@ fig_fc.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 st.plotly_chart(fig_fc, use_container_width=True)
-
-
-
