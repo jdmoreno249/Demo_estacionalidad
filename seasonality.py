@@ -8,6 +8,14 @@ import streamlit as st
 from statsmodels.tsa.seasonal import seasonal_decompose
 
 # ----------------------------------------
+# Configuración de página (debe ser el primer comando de Streamlit)
+# ----------------------------------------
+st.set_page_config(
+    page_title="Dashboard de Estacionalidad y Pronóstico",
+    layout="wide"
+)
+
+# ----------------------------------------
 # 0. Generación de datos artificiales (sin eventos de junio)
 # ----------------------------------------
 @st.cache_data
@@ -172,11 +180,6 @@ modelos_tuned, rmse_valid_dict, df_forecast_diario = train_and_forecast(ts_daily
 # ----------------------------------------
 # 3. Streamlit Dashboard
 # ----------------------------------------
-st.set_page_config(
-    page_title="Dashboard de Estacionalidad y Pronóstico",
-    layout="wide"
-)
-
 st.title("📊 Dashboard de Efectos de Estacionalidad y Pronóstico de Ventas")
 
 # Sidebar: Filtros Generales
