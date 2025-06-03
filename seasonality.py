@@ -3,9 +3,10 @@ import numpy as np
 import lightgbm as lgb
 from sklearn.metrics import mean_squared_error
 from datetime import timedelta
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # solo para cálculos, no para graficar en Streamlit
 import streamlit as st
 from statsmodels.tsa.seasonal import seasonal_decompose
+import plotly.graph_objects as go
 
 # ----------------------------------------
 # Configuración de página (debe ser el primer comando de Streamlit)
@@ -69,6 +70,10 @@ ts_daily = generate_data()
 # 1. Función para crear features (omitimos items 7–10)
 # ----------------------------------------
 def create_features(df, dropna_y=True):
+    """
+    Dado un DataFrame con índice datetime y una sola columna (la serie 'y'),
+    devuelve un DataFrame de features para LightGBM.
+    """
     df_feat = df.copy()
     df_feat.index = pd.to_datetime(df_feat.index)
     df_feat = df_feat.rename(columns={df_feat.columns[0]: 'y'})
@@ -272,21 +277,32 @@ elif aggregation == "Mensual":
 
 st.line_chart(df_plot)
 
-# Superponer eventos como líneas verticales
+# Superponer eventos como líneas verticales en Plotly
 if not df_eventos.empty:
     categorias_evt = st.selectbox(
         "Seleccionar evento para resaltar:",
         options=["Todos"] + df_eventos["nombre_evento"].unique().tolist()
     )
+    # Convertimos la serie filtrada a Plotly para poder superponer líneas
+    fig_hist = go.Figure()
+    for cat in selected_categories:
+        serie_cat = df_plot[cat]
+        fig_hist.add_trace(go.Scatter(
+            x=serie_cat.index, y=serie_cat.values,
+            mode='lines',
+            name=f"{cat}"
+        ))
+    # Vertical lines para eventos
     for _, row in df_eventos.iterrows():
         if categorias_evt == "Todos" or row["nombre_evento"] == categorias_evt:
             if start_hist <= row["fecha"] <= end_hist:
-                st.markdown(
-                    f"<div style='position: relative; top: -200px; "
-                    f"left: { (row['fecha'] - start_hist).days / (end_hist - start_hist).days * 100 }%; "
-                    f"width: 2px; height: 200px; background-color: red;'></div>",
-                    unsafe_allow_html=True
+                fig_hist.add_vline(
+                    x=row["fecha"],
+                    line=dict(color="red", width=1, dash="dot"),
+                    annotation_text=row["nombre_evento"],
+                    annotation_position="top left"
                 )
+    st.plotly_chart(fig_hist, use_container_width=True)
 
 st.markdown("---")
 
@@ -303,9 +319,9 @@ years_to_display = st.slider(
     "Últimos N años para descomposición:",
     min_value=1, max_value=5, value=2, step=1
 )
-freq_map = {"Diario": "D", "Semanal": "W", "Mensual": "M"}
 period_map = {"Diario": 365, "Semanal": 52, "Mensual": 12}
 
+# Selección de la serie recortada
 serie = ts_daily[decomp_cat].loc[
     ts_daily.index.max() - pd.DateOffset(years=years_to_display) : ts_daily.index.max()
 ]
@@ -314,14 +330,23 @@ if aggregation == "Semanal":
 elif aggregation == "Mensual":
     serie = serie.resample("M").sum()
 
-# Evitar errores si serie muy corta
 if len(serie) >= period_map[aggregation] * 2:
     result = seasonal_decompose(serie, model="additive", period=period_map[aggregation])
-    fig, axes = plt.subplots(3, 1, figsize=(10, 8))
-    axes[0].plot(result.trend);    axes[0].set_title("Tendencia")
-    axes[1].plot(result.seasonal); axes[1].set_title("Estacionalidad")
-    axes[2].plot(result.resid);    axes[2].set_title("Residuo")
-    st.pyplot(fig)
+
+    # Construimos un DataFrame con las 3 series: trend, seasonal, resid
+    df_decomp = pd.DataFrame({
+        "Tendencia":  result.trend,
+        "Estacionalidad": result.seasonal,
+        "Residuo":    result.resid
+    })
+
+    st.subheader("Componentes de la Descomposición")
+    st.write("""
+    - **Tendencia:** Variación lenta a lo largo del tiempo.  
+    - **Estacionalidad:** Patrón repetitivo en períodos iguales.  
+    - **Residuo:** Lo que no se explica por tendencia ni estacionalidad.  
+    """)
+    st.line_chart(df_decomp.fillna(method="bfill"))  # interpolar valores nulos para mostrar líneas
 else:
     st.write("Serie demasiado corta para descomposición con este nivel de agregación.")
 
@@ -340,7 +365,7 @@ else:
         options=df_eventos["nombre_evento"].unique().tolist()
     )
     window_days = st.slider(
-        "Ventana de semanas previas y posteriores (días):",
+        "Ventana de días previos y posteriores:",
         min_value=7, max_value=30, value=14, step=7
     )
     if eventos_selec:
@@ -362,20 +387,19 @@ else:
 
             delta_pct = ((ventas_evt - ventas_pre) / ventas_pre * 100) if ventas_pre != 0 else np.nan
             impacto_list.append({
-                "evento": evento,
-                "categoría": cat_evt,
-                "ventas_pre": ventas_pre,
-                "ventas_evento": ventas_evt,
-                "ventas_post": ventas_post,
-                "delta_%": delta_pct
+                "Evento":          evento,
+                "Categoría":       cat_evt,
+                "Ventas Previo":   ventas_pre,
+                "Ventas Evento":   ventas_evt,
+                "Ventas Posterior":ventas_post,
+                "Δ (%)":           delta_pct
             })
         df_impacto = pd.DataFrame(impacto_list)
         if not df_impacto.empty:
-            st.dataframe(df_impacto[[
-                "evento", "categoría", "ventas_pre",
-                "ventas_evento", "ventas_post", "delta_%"
-            ]].round(2))
-            st.bar_chart(df_impacto.set_index("evento")["delta_%"])
+            st.subheader("Tabla de Impacto de Eventos")
+            st.dataframe(df_impacto.round(2))
+            st.subheader("Variación porcentual en Ventas (%)")
+            st.bar_chart(df_impacto.set_index("Evento")["Δ (%)"])
         else:
             st.write("No hay eventos aplicables a las categorías seleccionadas.")
 
@@ -394,24 +418,62 @@ last_n_days = st.slider(
     "Mostrar últimos N días de histórico:",
     min_value=30, max_value=90, value=60, step=10
 )
-historic_series = ts_daily[cat_forecast].dropna()[-last_n_days:]
-forecast_series = df_forecast_diario[cat_forecast]
 
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(
-    historic_series,
-    label=f"Histórico {cat_forecast} (últimos {last_n_days} días)",
-    linewidth=2
+# 8.1. Serie histórica recortada
+historic_series = ts_daily[cat_forecast].dropna()[-last_n_days:]
+
+# 8.2. Serie de pronóstico (30 días)
+if show_forecast:
+    forecast_series = df_forecast_diario[cat_forecast]
+else:
+    forecast_series = pd.Series(dtype=float)  # vacío si no se quiere mostrar pronóstico
+
+# Construimos DataFrame combinado
+df_compare = pd.DataFrame({
+    "Histórico": historic_series,
+})
+if show_forecast:
+    df_compare = df_compare.append(pd.Series(dtype=float))  # placeholder para alinear índices
+    
+# Añadimos los días de pronóstico pegados al final
+if show_forecast:
+    df_future = pd.DataFrame({"Pronóstico": forecast_series})
+    df_compare = pd.concat([df_compare, df_future], axis=1)
+
+# Creamos gráfico con Plotly para incluir línea vertical
+fig_fc = go.Figure()
+
+# Trazamos histórico
+fig_fc.add_trace(go.Scatter(
+    x=historic_series.index,
+    y=historic_series.values,
+    mode='lines',
+    name="Histórico",
+    line=dict(color='blue')
+))
+
+# Trazamos pronóstico (solo si está activo)
+if show_forecast:
+    fig_fc.add_trace(go.Scatter(
+        x=forecast_series.index,
+        y=forecast_series.values,
+        mode='lines',
+        name="Pronóstico",
+        line=dict(color='orange', dash='dash')
+    ))
+    # Línea vertical separadora
+    fig_fc.add_vline(
+        x=ts_daily.index.max(),
+        line=dict(color="gray", width=1, dash="dot"),
+        annotation_text="Hoy",
+        annotation_position="top right"
+    )
+
+fig_fc.update_layout(
+    title=f"Histórico vs Pronóstico - {cat_forecast}",
+    xaxis_title="Fecha",
+    yaxis_title="Ventas diarias",
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
-ax.plot(
-    forecast_series,
-    linestyle="--",
-    label=f"Pronóstico {cat_forecast} (próximos 30 días)",
-    linewidth=2
-)
-ax.axvline(x=ts_daily.index.max(), color="gray", linestyle=":")
-ax.set_title(f"Histórico vs Pronóstico - {cat_forecast}")
-ax.set_xlabel("Fecha")
-ax.set_ylabel("Ventas diarias")
-ax.legend()
-st.pyplot(fig)
+st.plotly_chart(fig_fc, use_container_width=True)
+
