@@ -275,17 +275,18 @@ if aggregation == "Semanal":
 elif aggregation == "Mensual":
     df_plot = df_plot.resample("M").sum()
 
-# Gráfico con Plotly
+# Construcción del gráfico Plotly
 fig_hist = go.Figure()
 for cat in selected_categories:
     serie_cat = df_plot[cat]
     fig_hist.add_trace(go.Scatter(
-        x=serie_cat.index, y=serie_cat.values,
+        x=serie_cat.index,
+        y=serie_cat.values,
         mode='lines',
-        name=f"{cat}"
+        name=cat
     ))
 
-# Superponer eventos como líneas verticales
+# Superponer eventos como líneas verticales en Plotly
 if not df_eventos.empty:
     categorias_evt = st.selectbox(
         "Seleccionar evento para resaltar:",
@@ -295,13 +296,13 @@ if not df_eventos.empty:
         if categorias_evt == "Todos" or row["nombre_evento"] == categorias_evt:
             if start_hist <= row["fecha"] <= end_hist:
                 fig_hist.add_vline(
-                    x=row["fecha"],  # pasamos directamente Timestamp
+                    x=row["fecha"].strftime("%Y-%m-%d"),
                     line=dict(color="red", width=1, dash="dot"),
-                    annotation_text=row["nombre_evento"]
+                    annotation_text=row["nombre_evento"],
+                    annotation_position="top left"
                 )
 
 st.plotly_chart(fig_hist, use_container_width=True)
-
 st.markdown("---")
 
 # ----------------------------------------
@@ -336,7 +337,7 @@ if len(serie) >= period_map[aggregation] * 2:
         "Tendencia":      result.trend,
         "Estacionalidad": result.seasonal,
         "Residuo":        result.resid
-    })
+    }).fillna(method="bfill")
 
     st.subheader("Componentes de la Descomposición")
     st.write("""
@@ -344,7 +345,7 @@ if len(serie) >= period_map[aggregation] * 2:
     - **Estacionalidad:** Patrón repetitivo en períodos iguales.  
     - **Residuo:** Lo que no se explica por tendencia ni estacionalidad.  
     """)
-    st.line_chart(df_decomp.fillna(method="bfill"))  # interpolar valores nulos para mostrar líneas
+    st.line_chart(df_decomp)
 else:
     st.write("Serie demasiado corta para descomposición con este nivel de agregación.")
 
@@ -426,7 +427,7 @@ if show_forecast:
 else:
     forecast_series = pd.Series(dtype=float)  # vacío si no se quiere mostrar pronóstico
 
-# Construimos gráfico con Plotly para incluir línea vertical
+# Construimos gráfico con Plotly
 fig_fc = go.Figure()
 
 # Trazamos histórico
@@ -447,9 +448,10 @@ if show_forecast:
         name="Pronóstico",
         line=dict(color='orange', dash='dash')
     ))
-    # Línea vertical separadora usando directamente Timestamp
+    # Convertimos la fecha “hoy” a string para evitar el TypeError
+    hoy_str = ts_daily.index.max().strftime("%Y-%m-%d")
     fig_fc.add_vline(
-        x=ts_daily.index.max(),
+        x=hoy_str,
         line=dict(color="gray", width=1, dash="dot"),
         annotation_text="Hoy"
     )
@@ -461,5 +463,6 @@ fig_fc.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 st.plotly_chart(fig_fc, use_container_width=True)
+
 
 
