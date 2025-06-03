@@ -275,7 +275,7 @@ if aggregation == "Semanal":
 elif aggregation == "Mensual":
     df_plot = df_plot.resample("M").sum()
 
-# Usamos Plotly para la visualización interactiva
+# Gráfico con Plotly
 fig_hist = go.Figure()
 for cat in selected_categories:
     serie_cat = df_plot[cat]
@@ -295,18 +295,12 @@ if not df_eventos.empty:
         if categorias_evt == "Todos" or row["nombre_evento"] == categorias_evt:
             if start_hist <= row["fecha"] <= end_hist:
                 fig_hist.add_vline(
-                    x=row["fecha"],
+                    x=row["fecha"].strftime("%Y-%m-%d"),  # convertir a string
                     line=dict(color="red", width=1, dash="dot"),
                     annotation_text=row["nombre_evento"],
                     annotation_position="top left"
                 )
 
-fig_hist.update_layout(
-    title="Serie Histórica de Ventas por Categoría",
-    xaxis_title="Fecha",
-    yaxis_title="Ventas diarias",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-)
 st.plotly_chart(fig_hist, use_container_width=True)
 
 st.markdown("---")
@@ -340,18 +334,18 @@ if len(serie) >= period_map[aggregation] * 2:
 
     # Construimos un DataFrame con las 3 series: trend, seasonal, resid
     df_decomp = pd.DataFrame({
-        "Tendencia":    result.trend,
+        "Tendencia":      result.trend,
         "Estacionalidad": result.seasonal,
-        "Residuo":      result.resid
+        "Residuo":        result.resid
     })
 
     st.subheader("Componentes de la Descomposición")
-    st.markdown("""
+    st.write("""
     - **Tendencia:** Variación lenta a lo largo del tiempo.  
     - **Estacionalidad:** Patrón repetitivo en períodos iguales.  
     - **Residuo:** Lo que no se explica por tendencia ni estacionalidad.  
     """)
-    st.line_chart(df_decomp.fillna(method="bfill"))
+    st.line_chart(df_decomp.fillna(method="bfill"))  # interpolar valores nulos para mostrar líneas
 else:
     st.write("Serie demasiado corta para descomposición con este nivel de agregación.")
 
@@ -454,9 +448,10 @@ if show_forecast:
         name="Pronóstico",
         line=dict(color='orange', dash='dash')
     ))
-    # Línea vertical separadora
+    # Línea vertical separadora usando string en lugar de Timestamp directamente
+    hoy_str = ts_daily.index.max().strftime("%Y-%m-%d")
     fig_fc.add_vline(
-        x=ts_daily.index.max(),
+        x=hoy_str,
         line=dict(color="gray", width=1, dash="dot"),
         annotation_text="Hoy",
         annotation_position="top right"
