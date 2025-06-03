@@ -476,4 +476,3 @@ fig_fc.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 st.plotly_chart(fig_fc, use_container_width=True)
-
