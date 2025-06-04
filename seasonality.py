@@ -31,7 +31,7 @@ def generate_data():
         'categoría': categories * len(dates)
     })
     df['mes'] = df['fecha'].dt.month
-    df['factor_estacional'] = 1 + 0.3 * np.sin(2 * np.pi * (df['mes'] - 1) / 24)
+    df['factor_estacional'] = 1 + 0.3 * np.sin(2 * np.pi * (df['mes'] - 1) / 12)
 
     baseline = {
         'Bebidas': 500,
