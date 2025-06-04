@@ -55,7 +55,6 @@
 #        • Rango de fechas histórico (por defecto: últimos 365 días).
 #        • Nivel de agregación (“Diario”, “Semanal”, “Mensual”).
 #        • Checkbox para activar/desactivar el pronóstico.
-#        • Carga opcional de un CSV de eventos (fecha, nombre_evento, categoría).
 #
 #    - Sección A: Resumen Ejecutivo (KPIs)
 #        • Para cada categoría seleccionada:
@@ -64,21 +63,21 @@
 #            – Promedio de ventas según nivel de agregación.
 #        • Se muestra con st.metric y st.write.
 #
-#    - Sección B: Serie Histórica Multi-Categoría
+#    - Sección B: Serie Histórica Multi-Categoría (sin eventos)
 #        • Filtra ts_daily por categorías y fechas.
-#        • Si no hay eventos, usa st.line_chart.
-#        • Si hay eventos:
-#            – Grafica cada categoría con Plotly.
-#            – Superpone líneas verticales en fechas de eventos cargados.
-#            – Permite filtrar por un evento o “Todos”.
+#        • Grafica la serie histórica directamente con st.line_chart.
 #
-#    - Sección C: Descomposición de Estacionalidad
+#    - Sección C: Descomposición de Estacionalidad y Suavizado Holt-Winters
 #        • Elige categoría y cuántos años atrás (1 a 5).
 #        • Reagrega la serie según el nivel de agregación.
-#        • Si hay suficientes datos (≥ 2 periodos completos): aplica seasonal_decompose (aditivo).
-#            – Crea DataFrame con Tendencia, Estacionalidad y Residuo.
+#        • Si hay suficientes datos (≥ 2 periodos completos): aplica seasonal_decompose (aditivo):
+#            – Crea DataFrame con Tendencia (por media móvil), Estacionalidad y Residuo.
 #            – Explica brevemente cada componente.
 #            – Grafica las tres series con st.line_chart (llenando valores nulos).
+#        • Además, calcula la “Tendencia Holt-Winters” para la misma serie:
+#            – Emplea ExponentialSmoothing (Holt lineal) para suavizar rapidamente sin ventana centrada.
+#            – Esta tendencia llega hasta la fecha más reciente (Junio 30 2025).
+#            – Grafica la tendencia Holt-Winters en una línea separada.
 #        • Si la serie es demasiado corta, muestra un mensaje.
 #
 #    - Sección E: Pronóstico vs. Real Histórico
@@ -98,9 +97,9 @@ import numpy as np
 import lightgbm as lgb
 from sklearn.metrics import mean_squared_error
 from datetime import timedelta
-import matplotlib.pyplot as plt  # solo para cálculos, no para graficar en Streamlit
 import streamlit as st
 from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import plotly.graph_objects as go
 
 # ----------------------------------------
@@ -114,7 +113,6 @@ st.set_page_config(
 # ----------------------------------------
 # 0. Generación de datos artificiales (sin eventos de junio)
 # ----------------------------------------
-#@st.cache_data
 def generate_data():
     end_date = pd.Timestamp.today().normalize()
     start_date = end_date - pd.Timedelta(days=5 * 365)
@@ -317,6 +315,7 @@ aggregation = st.sidebar.selectbox(
 # 3.4. Checkbox: Mostrar Pronóstico
 show_forecast = st.sidebar.checkbox("Mostrar Pronóstico (próximos 30 días)", value=True)
 
+st.markdown("---")
 
 # ----------------------------------------
 # 4. Sección A: Resumen Ejecutivo (KPIs)
@@ -362,15 +361,15 @@ if aggregation == "Semanal":
 elif aggregation == "Mensual":
     df_plot = df_plot.resample("M").sum()
 
-# Trazamos directamente la serie histórica usando Streamlit, sin lógica de eventos
+# Trazamos directamente la serie histórica usando Streamlit
 st.line_chart(df_plot)
 
 st.markdown("---")
 
 # ----------------------------------------
-# 6. Sección C: Descomposición de Estacionalidad
+# 6. Sección C: Descomposición de Estacionalidad y Suavizado Holt-Winters
 # ----------------------------------------
-st.header("🔍 Descomposición de Estacionalidad")
+st.header("🔍 Descomposición de Estacionalidad y Tendencia Holt-Winters")
 
 decomp_cat = st.selectbox(
     "Seleccionar Categoría para Descomposición:",
@@ -382,7 +381,7 @@ years_to_display = st.slider(
 )
 period_map = {"Diario": 365, "Semanal": 52, "Mensual": 12}
 
-# Selección de la serie recortada
+# 6.1. Selección de la serie recortada
 serie = ts_daily[decomp_cat].loc[
     ts_daily.index.max() - pd.DateOffset(years=years_to_display) : ts_daily.index.max()
 ]
@@ -391,23 +390,37 @@ if aggregation == "Semanal":
 elif aggregation == "Mensual":
     serie = serie.resample("M").sum()
 
+# 6.2. Cálculo de media móvil (seasonal_decompose) si hay suficientes datos
 if len(serie) >= period_map[aggregation] * 2:
     result = seasonal_decompose(serie, model="additive", period=period_map[aggregation])
 
-    # Construimos un DataFrame con las 3 series: trend, seasonal, resid
+    # Creamos un DataFrame con las 3 componentes clásicas: tendencia, estacionalidad y residuo
     df_decomp = pd.DataFrame({
-        "Tendencia":    result.trend,
-        "Estacionalidad": result.seasonal,
-        "Residuo":      result.resid
+        "Tendencia_MA":    result.trend,
+        "Estacionalidad":  result.seasonal,
+        "Residuo":         result.resid
     })
 
-    st.subheader("Componentes de la Descomposición")
+    st.subheader("Componentes de la Descomposición (Media Móvil Centrada)")
     st.write("""
-    - **Tendencia:** Variación lenta a lo largo del tiempo.  
+    - **Tendencia_MA:** Variación lenta a lo largo del tiempo (media móvil centrada).  
     - **Estacionalidad:** Patrón repetitivo en períodos iguales.  
     - **Residuo:** Lo que no se explica por tendencia ni estacionalidad.  
     """)
-    st.line_chart(df_decomp.fillna(method="bfill"))  # interpolar valores nulos para mostrar líneas
+    st.line_chart(df_decomp.fillna(method="bfill"))  # Rellena NaNs por delante para graficar
+
+    # 6.3. Cálculo de Tendencia con Holt-Winters
+    #    - ExponentialSmoothing con trend="add" (Holt lineal) permite una tendencia hasta la fecha más reciente.
+    hw_model = ExponentialSmoothing(serie, trend="add", seasonal=None, initialization_method="estimated")
+    hw_fit = hw_model.fit(optimized=True)
+    trend_hw = hw_fit.fittedvalues  # Suavizado que incluye nivel + tendencia hasta el final
+
+    st.subheader("Tendencia Holt-Winters")
+    st.write("""
+    La tendencia Holt-Winters (Holt lineal) suaviza la serie sin requerir datos futuros.  
+    Se calcula recursivamente para cada punto, de modo que **llega hasta la fecha más reciente**.  
+    """)
+    st.line_chart(trend_hw)
 else:
     st.write("Serie demasiado corta para descomposición con este nivel de agregación.")
 
@@ -434,7 +447,7 @@ historic_series = ts_daily[cat_forecast].dropna()[-last_n_days:]
 if show_forecast:
     forecast_series = df_forecast_diario[cat_forecast]
 else:
-    forecast_series = pd.Series(dtype=float)  # vacío si no se quiere mostrar pronóstico
+    forecast_series = pd.Series(dtype=float)  # Vacío si no se quiere mostrar pronóstico
 
 # Construimos gráfico con Plotly para incluir línea vertical y etiquetas
 fig_fc = go.Figure()
@@ -458,7 +471,7 @@ if show_forecast:
         line=dict(color='orange', dash='dash')
     ))
 
-    # 1) Dibujamos la línea vertical “Hoy” con add_shape
+    # Dibujamos la línea vertical “Hoy”
     last_date = ts_daily.index.max()
     fig_fc.add_shape(
         type="line",
@@ -470,7 +483,6 @@ if show_forecast:
         yref="paper",
         line=dict(color="gray", width=1, dash="dot")
     )
-    # 2) Agregamos la etiqueta con add_annotation
     fig_fc.add_annotation(
         x=last_date,
         y=1.0,
@@ -488,3 +500,4 @@ fig_fc.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 st.plotly_chart(fig_fc, use_container_width=True)
+
