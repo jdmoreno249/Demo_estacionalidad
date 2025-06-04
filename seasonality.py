@@ -280,7 +280,10 @@ modelos_tuned, rmse_valid_dict, df_forecast_diario = train_and_forecast(ts_daily
 # ----------------------------------------
 # 3. Streamlit Dashboard
 # ----------------------------------------
-st.title("📊 Dashboard de Efectos de Estacionalidad y Pronóstico de Ventas")
+st.markdown(
+    "<h1 style='text-align: center;'>Dashboard de Efectos de Estacionalidad y Pronóstico de Ventas</h1>",
+    unsafe_allow_html=True
+)
 
 # Sidebar: Filtros Generales
 st.sidebar.header("Filtros")
