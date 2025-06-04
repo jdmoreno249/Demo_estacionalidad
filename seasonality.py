@@ -1,3 +1,98 @@
+# --------------------------------------------------------------------------------
+# Dashboard de Estacionalidad y Pronóstico
+#
+# Este script está organizado en tres bloques principales:
+#
+# 1. Generación y Preparación de Datos
+#    - generate_data():
+#        • Crea un rango de fechas diarias para los últimos 5 años hasta hoy.
+#        • Define cinco categorías de productos: Bebidas, Cafés, Snacks, Jugos y Galletas.
+#        • Calcula un “factor estacional” usando una función senoidal para simular picos mensuales.
+#        • Asigna un volumen base a cada categoría y le suma ruido gaussiano proporcional.
+#        • Construye un DataFrame de ventas diarias por categoría y retorna ts_daily, 
+#          un DataFrame con índice diario y columnas para cada categoría.
+#
+#    - create_features(df, dropna_y=True):
+#        • Recibe un DataFrame con índice datetime y una sola columna (“y”).
+#        • Extrae variables temporales: dayofweek, month, quarter, year, dayofmonth,
+#          is_weekend, dayofyear, is_month_start, is_month_end, is_quarter_start, is_quarter_end.
+#        • Devuelve un DataFrame con estas columnas de features más la columna original “y”.
+#        • Se utiliza para preparar datos de entrada a modelos LightGBM.
+#
+# 2. Ajuste de Modelos LightGBM y Pronóstico
+#
+#    - param_grid:
+#        • Define un grid manual de hiperparámetros: learning_rate, num_leaves, max_depth, n_estimators.
+#
+#    - tune_lgbm(X_tr, y_tr, X_val, y_val):
+#        • Recorre todas las combinaciones de param_grid.
+#        • Entrena un LGBMRegressor con early stopping (50 rondas sin mejora).
+#        • Evalúa RMSE en el conjunto de validación.
+#        • Devuelve los mejores parámetros junto con el RMSE mínimo.
+#
+#    - train_and_forecast(ts_daily):
+#        • Para cada categoría en ts_daily:
+#            1. Genera el DataFrame de features con create_features.
+#            2. Divide en entrenamiento (hasta 30 días antes del fin) y validación (últimos 30 días).
+#            3. Ajusta hiperparámetros con tune_lgbm, guarda RMSE en rmse_valid_dict.
+#            4. Entrena un modelo final con todos los datos usando los mejores parámetros.
+#            5. Guarda el modelo en modelos_tuned.
+#        • Genera un índice de fechas futuras (próximos 30 días) y:
+#            1. Crea features para esas fechas (sin “y”).
+#            2. Predice cada modelo para los próximos 30 días y construye df_forecast_diario.
+#        • Retorna:
+#            – modelos_tuned: diccionario de modelos LightGBM por categoría.
+#            – rmse_valid_dict: RMSE de validación por categoría.
+#            – df_forecast_diario: DataFrame con predicciones diarias para los próximos 30 días.
+#
+# 3. Dashboard con Streamlit
+#
+#    - Configuración de página:
+#        • st.set_page_config(...) establece el título y el layout (wide).
+#
+#    - Barra lateral (st.sidebar):
+#        • Selector de categorías a mostrar.
+#        • Rango de fechas histórico (por defecto: últimos 365 días).
+#        • Nivel de agregación (“Diario”, “Semanal”, “Mensual”).
+#        • Checkbox para activar/desactivar el pronóstico.
+#        • Carga opcional de un CSV de eventos (fecha, nombre_evento, categoría).
+#
+#    - Sección A: Resumen Ejecutivo (KPIs)
+#        • Para cada categoría seleccionada:
+#            – Total de ventas en el rango histórico.
+#            – Comparación porcentual con el mismo periodo del año anterior.
+#            – Promedio de ventas según nivel de agregación.
+#        • Se muestra con st.metric y st.write.
+#
+#    - Sección B: Serie Histórica Multi-Categoría
+#        • Filtra ts_daily por categorías y fechas.
+#        • Si no hay eventos, usa st.line_chart.
+#        • Si hay eventos:
+#            – Grafica cada categoría con Plotly.
+#            – Superpone líneas verticales en fechas de eventos cargados.
+#            – Permite filtrar por un evento o “Todos”.
+#
+#    - Sección C: Descomposición de Estacionalidad
+#        • Elige categoría y cuántos años atrás (1 a 5).
+#        • Reagrega la serie según el nivel de agregación.
+#        • Si hay suficientes datos (≥ 2 periodos completos): aplica seasonal_decompose (aditivo).
+#            – Crea DataFrame con Tendencia, Estacionalidad y Residuo.
+#            – Explica brevemente cada componente.
+#            – Grafica las tres series con st.line_chart (llenando valores nulos).
+#        • Si la serie es demasiado corta, muestra un mensaje.
+#
+#    - Sección E: Pronóstico vs. Real Histórico
+#        • Elige categoría para pronóstico y cuántos días históricos mostrar (30 a 90).
+#        • Obtiene serie histórica (últimos N días) y serie de pronóstico (30 días) si está activado.
+#        • Construye gráfica Plotly:
+#            – Línea azul: datos históricos.
+#            – Línea naranja discontinua: pronóstico (si activo).
+#            – Línea vertical gris punteada en “hoy” (última fecha de ts_daily) con etiqueta “Hoy”.
+#            – Título, etiquetas de ejes y leyenda personalizada.
+#        • Muestra el gráfico con st.plotly_chart.
+#
+# --------------------------------------------------------------------------------
+
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -350,59 +445,6 @@ if len(serie) >= period_map[aggregation] * 2:
     st.line_chart(df_decomp.fillna(method="bfill"))  # interpolar valores nulos para mostrar líneas
 else:
     st.write("Serie demasiado corta para descomposición con este nivel de agregación.")
-
-st.markdown("---")
-
-# ----------------------------------------
-# 7. Sección D: Impacto de Eventos Especiales
-# ----------------------------------------
-st.header("📊 Impacto de Eventos Especiales")
-
-if df_eventos.empty:
-    st.info("No se cargaron eventos. Por favor sube un CSV de eventos en la barra lateral.")
-else:
-    eventos_selec = st.multiselect(
-        "Seleccionar Evento(s) para Análisis:",
-        options=df_eventos["nombre_evento"].unique().tolist()
-    )
-    window_days = st.slider(
-        "Ventana de días previos y posteriores:",
-        min_value=7, max_value=30, value=14, step=7
-    )
-    if eventos_selec:
-        impacto_list = []
-        for evento in eventos_selec:
-            row_evt = df_eventos[df_eventos["nombre_evento"] == evento].iloc[0]
-            fecha_evt = row_evt["fecha"]
-            cat_evt = row_evt["categoría"]
-            if cat_evt not in selected_categories and cat_evt != "Todas":
-                continue
-
-            ventas_pre = ts_daily[cat_evt].loc[
-                fecha_evt - pd.Timedelta(days=window_days) : fecha_evt - pd.Timedelta(days=1)
-            ].mean()
-            ventas_post = ts_daily[cat_evt].loc[
-                fecha_evt + pd.Timedelta(days=1) : fecha_evt + pd.Timedelta(days=window_days)
-            ].mean()
-            ventas_evt = ts_daily[cat_evt].loc[fecha_evt]
-
-            delta_pct = ((ventas_evt - ventas_pre) / ventas_pre * 100) if ventas_pre != 0 else np.nan
-            impacto_list.append({
-                "Evento":           evento,
-                "Categoría":        cat_evt,
-                "Ventas Previo":    ventas_pre,
-                "Ventas Evento":    ventas_evt,
-                "Ventas Posterior": ventas_post,
-                "Δ (%)":            delta_pct
-            })
-        df_impacto = pd.DataFrame(impacto_list)
-        if not df_impacto.empty:
-            st.subheader("Tabla de Impacto de Eventos")
-            st.dataframe(df_impacto.round(2))
-            st.subheader("Variación porcentual en Ventas (%)")
-            st.bar_chart(df_impacto.set_index("Evento")["Δ (%)"])
-        else:
-            st.write("No hay eventos aplicables a las categorías seleccionadas.")
 
 st.markdown("---")
 
