@@ -349,7 +349,7 @@ for idx, categoria in enumerate(selected_categories):
 st.markdown("---")
 
 # ----------------------------------------
-# 5. Sección B: Serie Histórica Multi-Categoría
+# 5. Sección B: Serie Histórica Multi-Categoría (sin eventos)
 # ----------------------------------------
 st.header("📈 Serie Histórica de Ventas")
 
@@ -359,35 +359,8 @@ if aggregation == "Semanal":
 elif aggregation == "Mensual":
     df_plot = df_plot.resample("M").sum()
 
-# Si no hay eventos, usamos simplemente line_chart de Streamlit
-if df_eventos.empty:
-    st.line_chart(df_plot)
-else:
-    # Con eventos, pasamos a Plotly para superponer líneas verticales
-    categorias_evt = st.selectbox(
-        "Seleccionar evento para resaltar:",
-        options=["Todos"] + df_eventos["nombre_evento"].unique().tolist()
-    )
-    fig_hist = go.Figure()
-    for cat in selected_categories:
-        serie_cat = df_plot[cat]
-        fig_hist.add_trace(go.Scatter(
-            x=serie_cat.index,
-            y=serie_cat.values,
-            mode='lines',
-            name=cat
-        ))
-    # Dibujamos cada evento como línea vertical
-    for _, row in df_eventos.iterrows():
-        if categorias_evt == "Todos" or row["nombre_evento"] == categorias_evt:
-            if start_hist <= row["fecha"] <= end_hist:
-                fig_hist.add_vline(
-                    x=row["fecha"],
-                    line=dict(color="red", width=1, dash="dot"),
-                    annotation_text=row["nombre_evento"],
-                    annotation_position="top left"
-                )
-    st.plotly_chart(fig_hist, use_container_width=True)
+# Trazamos directamente la serie histórica usando Streamlit, sin lógica de eventos
+st.line_chart(df_plot)
 
 st.markdown("---")
 
