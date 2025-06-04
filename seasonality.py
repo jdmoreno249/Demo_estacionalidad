@@ -114,7 +114,7 @@ st.set_page_config(
 # ----------------------------------------
 # 0. Generación de datos artificiales (sin eventos de junio)
 # ----------------------------------------
-@st.cache_data
+#@st.cache_data
 def generate_data():
     end_date = pd.Timestamp.today().normalize()
     start_date = end_date - pd.Timedelta(days=5 * 365)
