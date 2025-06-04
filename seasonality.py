@@ -162,7 +162,7 @@ def generate_data():
 ts_daily = generate_data()
 
 # ----------------------------------------
-# 1. Función para crear features (omitimos items 7–10)
+# 1. Función para crear features
 # ----------------------------------------
 def create_features(df, dropna_y=True):
     """
@@ -314,17 +314,6 @@ aggregation = st.sidebar.selectbox(
 # 3.4. Checkbox: Mostrar Pronóstico
 show_forecast = st.sidebar.checkbox("Mostrar Pronóstico (próximos 30 días)", value=True)
 
-# 3.5. Carga CSV de Eventos (opcional)
-uploaded_file = st.sidebar.file_uploader(
-    "Subir CSV de Eventos (fecha, nombre_evento, categoría):",
-    type=["csv"]
-)
-if uploaded_file:
-    df_eventos = pd.read_csv(uploaded_file, parse_dates=["fecha"])
-else:
-    df_eventos = pd.DataFrame(columns=["fecha", "nombre_evento", "categoría"])
-
-st.sidebar.markdown("---")
 
 # ----------------------------------------
 # 4. Sección A: Resumen Ejecutivo (KPIs)
